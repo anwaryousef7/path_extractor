@@ -1,0 +1,98 @@
+import struct
+import string
+import os
+
+def extract_readable_strings(data, min_length=4):
+    """
+    Helper function to extract only readable text from binary data 
+    and ignore the garbled characters.
+    """
+    printable = set(string.printable.encode())
+    result = []
+    current_string = bytearray()
+    
+    for byte in data:
+        if byte in printable:
+            current_string.append(byte)
+        else:
+            if len(current_string) >= min_length:
+                result.append(current_string.decode('ascii', errors='ignore').strip())
+            current_string = bytearray()
+            
+    if len(current_string) >= min_length:
+        result.append(current_string.decode('ascii', errors='ignore').strip())
+    
+    return result
+
+def parse_sophos_riff(file_path):
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        print(f"Error: File '{file_path}' not found!")
+        return
+
+    with open(file_path, 'rb') as f:
+        # 1. Read the main header (first 12 bytes)
+        riff_header = f.read(4)
+        if riff_header != b'RIFF':
+            print("Error: This is not a valid RIFF file.")
+            return
+
+        file_size = struct.unpack('<I', f.read(4))[0]
+        form_type = f.read(4).decode('ascii', errors='ignore')
+        
+        print("=" * 40)
+        print("RIFF Header Information")
+        print("=" * 40)
+        print(f"Reported File Size: {file_size} bytes")
+        print(f"Internal File Type: {form_type} (e.g., sjrn)")
+        print("=" * 40 + "\n")
+        
+        print("Analyzing Chunks...\n")
+        
+        # 2. Read the sequential chunks
+        chunk_count = 1
+        while True:
+            chunk_id_bytes = f.read(4)
+            if not chunk_id_bytes or len(chunk_id_bytes) < 4:
+                break # Reached end of file
+            
+            chunk_id = chunk_id_bytes.decode('ascii', errors='ignore')
+            
+            size_bytes = f.read(4)
+            if len(size_bytes) < 4:
+                break
+            
+            # Calculate chunk size using Little-Endian format
+            chunk_size = struct.unpack('<I', size_bytes)[0]
+            
+            print(f"[{chunk_count}] Chunk Name: '{chunk_id}' | Size: {chunk_size} bytes")
+            
+            # Read chunk data
+            chunk_data = f.read(chunk_size)
+            
+            # Extract readable strings from this chunk
+            strings = extract_readable_strings(chunk_data)
+            
+            if strings:
+                print("    Extracted Readable Strings:")
+                for s in strings:
+                    # Print only non-empty strings to clean up the output
+                    if s.strip(): 
+                        print(f"      - {s}")
+            else:
+                print("    (Contains only binary/encrypted data - no readable text found)")
+            
+            print("-" * 40)
+            
+            # In the RIFF standard, if the chunk size is an odd number, a padding byte is added at the end
+            if chunk_size % 2 != 0:
+                f.read(1)
+                
+            chunk_count += 1
+
+# ==========================================
+# How to use:
+# Replace 'your_file.bin' with the actual path to your file
+# ==========================================
+file_to_analyze = 'your_file.bin' 
+parse_sophos_riff(file_to_analyze)
